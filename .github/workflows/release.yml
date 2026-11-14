@@ -39,7 +39,7 @@ jobs:
           cache-cleanup-max-age: 7
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Restore signing key
         env:
