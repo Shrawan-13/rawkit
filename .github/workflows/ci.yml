@@ -41,21 +41,32 @@ jobs:
           cache-cleanup: always
           cache-cleanup-max-age: 7
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Ensure required SDK packages
+      # The runner image already ships the Android SDK. android-actions/setup-android
+      # is deliberately not used: it invokes `sdkmanager tools`, a package that no
+      # longer exists, and fails on current runner images.
+      - name: Ensure Android SDK packages
         shell: bash
         run: |
           set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ] && [ -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found on this runner"
+            exit 1
+          fi
+
           missing=()
-          [ -d "$ANDROID_HOME/platforms/android-35" ] || missing+=("platforms;android-35")
-          [ -d "$ANDROID_HOME/build-tools/35.0.0" ] || missing+=("build-tools;35.0.0")
+          [ -d "$SDK/platforms/android-35" ] || missing+=("platforms;android-35")
+          [ -d "$SDK/build-tools/35.0.0" ] || missing+=("build-tools;35.0.0")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "Installing: ${missing[*]}"
-            sdkmanager "${missing[@]}"
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" "${missing[@]}"
           else
-            echo "SDK packages already present."
+            echo "Android SDK packages already present."
           fi
 
       # Build cache + configuration cache are on in gradle.properties, so
@@ -78,3 +89,58 @@ jobs:
           path: app/build/reports/lint-results-debug.html
           retention-days: 7
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------
+  # Runs last, after the build. Keeps the repository's Actions cache at the
+  # 20 most recently used entries so that cache writes stay fast and the
+  # cache never becomes the slowest part of the build.
+  # ---------------------------------------------------------------------
+  prune-caches:
+    name: Prune caches
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Delete all but the 20 most recently used caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: '20'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY##*/}"
+          api="/repos/${owner}/${repo}/actions/caches"
+
+          echo "Fetching caches for ${owner}/${repo}..."
+          gh api --paginate --slurp "${api}?per_page=100" > /tmp/caches.json
+
+          total=$(jq '[.[].actions_caches[]] | length' /tmp/caches.json)
+          echo "Total caches: ${total}"
+
+          if [ "${total}" -le "${KEEP}" ]; then
+            echo "Nothing to prune (${total} <= ${KEEP})."
+            exit 0
+          fi
+
+          # Sort by last_accessed_at (newest first) and drop the first KEEP entries.
+          jq -r --argjson keep "${KEEP}" \
+            '[.[].actions_caches[]] | sort_by(.last_accessed_at) | reverse | .[$keep:] | .[].id' \
+            /tmp/caches.json > /tmp/stale_ids.txt
+
+          stale=$(grep -c . /tmp/stale_ids.txt || true)
+          echo "Deleting ${stale} stale caches..."
+
+          while read -r id; do
+            [ -n "$id" ] || continue
+            gh api -X DELETE "${api}/${id}" --silent && echo "  deleted ${id}"
+          done < /tmp/stale_ids.txt
+
+          echo "Prune complete."
