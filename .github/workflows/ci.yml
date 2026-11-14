@@ -79,8 +79,12 @@ jobs:
 
       # Build cache + configuration cache are on in gradle.properties, so
       # unchanged modules are restored rather than recompiled.
+      #
+      # assembleRelease runs R8 and resource shrinking on every push. It is
+      # unsigned here (the release workflow supplies the signing key), but it
+      # is the only way to catch broken shrinker rules before a tagged build.
       - name: Assemble and test
-        run: ./gradlew assembleDebug testDebugUnitTest --console=plain
+        run: ./gradlew assembleDebug assembleRelease testDebugUnitTest --console=plain
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
@@ -88,6 +92,14 @@ jobs:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
+
+      - name: Upload release APK (unsigned)
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-release-unsigned
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 7
+          if-no-files-found: ignore
 
   lint:
     name: Lint
