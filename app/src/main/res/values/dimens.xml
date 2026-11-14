@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Width of one icon cell in the home grid. The column count is derived
+         from the screen width, so this value controls density, not count. -->
+    <dimen name="grid_cell_width">84dp</dimen>
+</resources>
