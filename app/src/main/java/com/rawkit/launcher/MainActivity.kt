@@ -90,20 +90,20 @@ class MainActivity : Activity() {
     }
 
     private fun launch(entry: AppEntry) {
-        val launched = try {
+        try {
             // LauncherApps.startMainActivity is the sanctioned path for a
             // launcher and keeps work-profile apps in their own profile.
+            // It reports failure by throwing, not by return value.
             launcherApps.startMainActivity(entry.component, entry.user, null, null)
+            return
         } catch (e: SecurityException) {
-            false
+            // Fall through to the plain intent below.
         }
 
-        if (!launched) {
-            // Fallback for the case where Rawkit is not the default launcher yet.
-            val intent = packageManager.getLaunchIntentForPackage(entry.component.packageName)
-            if (intent != null) {
-                startActivity(intent)
-            }
+        // Fallback for the case where Rawkit is not the default launcher yet.
+        val intent = packageManager.getLaunchIntentForPackage(entry.component.packageName)
+        if (intent != null) {
+            startActivity(intent)
         }
     }
 
@@ -116,8 +116,9 @@ class MainActivity : Activity() {
     }
 
     private fun columnCount(): Int {
-        val cellWidthDp = resources.getDimension(R.dimen.grid_cell_width)
-        val widthDp = resources.displayMetrics.width / resources.displayMetrics.density
+        val cellWidthDp =
+            resources.getDimension(R.dimen.grid_cell_width) / resources.displayMetrics.density
+        val widthDp = resources.configuration.screenWidthDp
         return (widthDp / cellWidthDp).toInt().coerceAtLeast(4)
     }
 }

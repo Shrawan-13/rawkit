@@ -18,7 +18,7 @@ class AppRepository(context: Context) {
     private val appContext = context.applicationContext
     private val launcherApps =
         appContext.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
-    private val density = appContext.resources.displayMetrics.density
+    private val densityDpi = appContext.resources.displayMetrics.densityDpi
 
     /**
      * Icons are expensive to create and are requested again on every launcher
@@ -45,7 +45,8 @@ class AppRepository(context: Context) {
                     component = component,
                     label = info.label?.toString().orEmpty(),
                     user = user,
-                    icon = iconCache.get(cacheKey) ?: createIcon(info.getIcon(density), cacheKey),
+                    icon = iconCache.get(cacheKey)
+                        ?: createIcon(info.getIcon(densityDpi), cacheKey),
                 )
             }
         }
