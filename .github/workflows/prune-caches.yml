@@ -1,0 +1,66 @@
+name: Prune caches
+
+# Keeps the repository's Actions cache small so that cache writes stay fast and
+# the cache never becomes the slowest part of the build.
+#
+# Strategy: keep the 20 most recently *used* caches, delete everything else.
+# A cache that has not been touched in a while is dead weight - the next build
+# will simply re-download those dependencies once.
+
+on:
+  schedule:
+    # 03:17 UTC daily. Deliberately off the hour to avoid the scheduler rush.
+    - cron: '17 3 * * *'
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune:
+    name: Keep latest 20 caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Delete all but the most recently used caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: '20'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY##*/}"
+          api="/repos/${owner}/${repo}/actions/caches"
+
+          echo "Fetching caches for ${owner}/${repo}..."
+          gh api --paginate --slurp "${api}?per_page=100" > /tmp/caches.json
+
+          total=$(jq '[.[].actions_caches[]] | length' /tmp/caches.json)
+          echo "Total caches: ${total}"
+
+          if [ "${total}" -le "${KEEP}" ]; then
+            echo "Nothing to prune (${total} <= ${KEEP})."
+            exit 0
+          fi
+
+          # Sort by last_accessed_at (newest first) and drop the first KEEP entries.
+          jq -r --argjson keep "${KEEP}" \
+            '[.[].actions_caches[]] | sort_by(.last_accessed_at) | reverse | .[$keep:] | .[].id' \
+            /tmp/caches.json > /tmp/stale_ids.txt
+
+          stale=$(wc -l < /tmp/stale_ids.txt | tr -d ' ')
+          echo "Deleting ${stale} stale caches..."
+
+          while read -r id; do
+            [ -n "$id" ] || continue
+            gh api -X DELETE "${api}/${id}" --silent && echo "  deleted ${id}"
+          done < /tmp/stale_ids.txt
+
+          echo "Prune complete."

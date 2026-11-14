@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One CI run per ref. Superseded runs are cancelled to save minutes and keep the
+# cache warm for the run that actually matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Gradle's own cache management: dependency cache, build cache, configuration
+      # cache, and automatic cleanup of stale entries. setup-java is deliberately
+      # used *without* `cache: gradle` so there is exactly one cache owner.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+          cache-cleanup: always
+          cache-cleanup-max-age: 7
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Ensure required SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -d "$ANDROID_HOME/platforms/android-35" ] || missing+=("platforms;android-35")
+          [ -d "$ANDROID_HOME/build-tools/35.0.0" ] || missing+=("build-tools;35.0.0")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Installing: ${missing[*]}"
+            sdkmanager "${missing[@]}"
+          else
+            echo "SDK packages already present."
+          fi
+
+      # Build cache + configuration cache are on in gradle.properties, so
+      # unchanged modules are restored rather than recompiled.
+      - name: Assemble, test and lint
+        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --console=plain
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: ignore

@@ -1,0 +1,101 @@
+name: Release
+
+# GitHub Releases is the distribution channel: no Play policy constraints, and
+# sideloaded plugin APKs work naturally from a signed GitHub release.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+          cache-cleanup: always
+          cache-cleanup-max-age: 7
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Restore signing key
+        env:
+          RAWKIT_KEYSTORE_BASE64: ${{ secrets.RAWKIT_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${RAWKIT_KEYSTORE_BASE64}" ]; then
+            echo "::error::Secret RAWKIT_KEYSTORE_BASE64 is not set. Cannot sign the release."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/keystore"
+          echo "${RAWKIT_KEYSTORE_BASE64}" | base64 -d > "$RUNNER_TEMP/keystore/rawkit.jks"
+          echo "Signing key restored."
+
+      - name: Assemble release APK
+        env:
+          RAWKIT_STORE_FILE: ${{ runner.temp }}/keystore/rawkit.jks
+          RAWKIT_STORE_PASSWORD: ${{ secrets.RAWKIT_KEYSTORE_PASSWORD }}
+          RAWKIT_KEY_ALIAS: ${{ secrets.RAWKIT_KEY_ALIAS }}
+          RAWKIT_KEY_PASSWORD: ${{ secrets.RAWKIT_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease --console=plain \
+            -PRAWKIT_STORE_FILE="$RAWKIT_STORE_FILE" \
+            -PRAWKIT_STORE_PASSWORD="$RAWKIT_STORE_PASSWORD" \
+            -PRAWKIT_KEY_ALIAS="$RAWKIT_KEY_ALIAS" \
+            -PRAWKIT_KEY_PASSWORD="$RAWKIT_KEY_PASSWORD"
+
+      - name: Checksum
+        id: checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          sha=$(sha256sum "$apk" | cut -d' ' -f1)
+          echo "sha256=${sha}" >> "$GITHUB_OUTPUT"
+          echo "SHA256: ${sha}"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          cp "$apk" "rawkit-${TAG}.apk"
+          echo "${SHA256}  rawkit-${TAG}.apk" > "rawkit-${TAG}.apk.sha256"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "rawkit-${TAG}.apk" "rawkit-${TAG}.apk.sha256" --clobber
+          else
+            gh release create "$TAG" \
+              "rawkit-${TAG}.apk" "rawkit-${TAG}.apk.sha256" \
+              --title "Rawkit ${TAG}" \
+              --generate-notes
+          fi
