@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/rawkit_background"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    tools:ignore="Overdraw">
 
     <EditText
         android:id="@+id/search"
@@ -15,6 +16,7 @@
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_search"
         android:hint="@string/search_hint"
+        android:importantForAutofill="no"
         android:imeOptions="actionSearch"
         android:inputType="text"
         android:maxLines="1"

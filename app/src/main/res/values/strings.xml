@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Rawkit</string>
-    <string name="welcome">Rawkit</string>
     <string name="search_hint">Search apps</string>
     <string name="no_matches">No apps found</string>
 </resources>

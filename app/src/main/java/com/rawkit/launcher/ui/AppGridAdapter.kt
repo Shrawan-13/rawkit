@@ -47,7 +47,7 @@ class AppGridAdapter(
                 oldItem.key == newItem.key
 
             override fun areContentsTheSame(oldItem: AppEntry, newItem: AppEntry): Boolean =
-                oldItem.label == newItem.label && oldItem.icon === newItem.icon
+                oldItem.label == newItem.label && oldItem.icon == newItem.icon
         }
     }
 }
