@@ -107,7 +107,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          cache-read-only: ${{ github.event_name == 'pull_request' }}
+          # Read-only: the build job owns the cache writes. Two jobs saving the
+          # same cache key at once makes one of them fail to reserve it.
+          cache-read-only: true
           cache-cleanup: always
           gradle-home-cache-includes: |
             caches

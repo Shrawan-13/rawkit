@@ -46,8 +46,13 @@ class AppGridAdapter(
             override fun areItemsTheSame(oldItem: AppEntry, newItem: AppEntry): Boolean =
                 oldItem.key == newItem.key
 
+            // Drawable does not implement equals(), so reference equality is
+            // exactly the comparison wanted here: the same icon instance
+            // means the same icon. Lint's DiffUtilEquals check cannot express
+            // that intent, hence the suppression.
+            @Suppress("DiffUtilEquals")
             override fun areContentsTheSame(oldItem: AppEntry, newItem: AppEntry): Boolean =
-                oldItem.label == newItem.label && oldItem.icon == newItem.icon
+                oldItem.label == newItem.label && oldItem.icon === newItem.icon
         }
     }
 }
